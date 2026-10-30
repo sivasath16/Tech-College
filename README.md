@@ -1,6 +1,6 @@
 # College Placement Management Portal
 
-React (Vite) + FastAPI + PostgreSQL. Phase 2: landing page, authentication, user management.
+React (Vite) + FastAPI + PostgreSQL. Phase 2: landing page, authentication, user management. Phase 3: student dashboard, profile, document uploads, jobs, applications, drives.
 
 ## Backend
 ```bash
@@ -10,6 +10,7 @@ cp .env.example .env            # set SECRET_KEY, DATABASE_URL
 createdb placement_portal
 .venv/bin/alembic upgrade head
 .venv/bin/python -m scripts.seed  # default admin + sample announcements
+.venv/bin/python -m scripts.seed_demo  # Phase 3 demo recruiters, jobs, drives, student asha@college.edu / Passw0rdOK
 .venv/bin/uvicorn app.main:app --reload --port 8000   # Swagger: http://localhost:8000/docs
 ```
 Tests (needs a `placement_portal_test` database): `createdb placement_portal_test && .venv/bin/python -m pytest -q`

@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     upload_dir: Path = BASE_DIR / "uploads"
     max_logo_bytes: int = 2 * 1024 * 1024
+    max_document_bytes: int = 5 * 1024 * 1024
+    max_certificates: int = 10
     otp_expire_minutes: int = 5
     otp_max_attempts: int = 5
     admin_email: str = "admin@college.edu"
