@@ -3,9 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
-from app.routers import admin, announcements, auth, student
+from app.routers import admin, announcements, auth, recruiter, student
 
-app = FastAPI(title="College Placement Management Portal API", version="0.3.0")
+app = FastAPI(title="College Placement Management Portal API", version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,6 +19,7 @@ app.include_router(auth.router, prefix=API)
 app.include_router(admin.router, prefix=API)
 app.include_router(announcements.router, prefix=API)
 app.include_router(student.router, prefix=API)
+app.include_router(recruiter.router, prefix=API)
 
 (settings.upload_dir / "logos").mkdir(parents=True, exist_ok=True)
 app.mount("/media/logos", StaticFiles(directory=settings.upload_dir / "logos"), name="logos")

@@ -33,6 +33,7 @@ class Job(Base):
     salary: Mapped[str | None] = mapped_column(String(100))
     required_skills: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     min_cgpa: Mapped[float] = mapped_column(Numeric(4, 2), default=0)
+    eligible_departments: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, server_default="{}")
     deadline: Mapped[date] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

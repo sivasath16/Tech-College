@@ -45,6 +45,7 @@ class JobOut(BaseModel):
     salary: str | None
     required_skills: list[str]
     min_cgpa: float
+    eligible_departments: list[str]
     deadline: date
     eligible: bool
     ineligible_reason: str | None

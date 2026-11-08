@@ -121,11 +121,12 @@ def delete_certificate(doc_id: int, db: Session = Depends(get_db), student: Stud
 # ---------- jobs & internships ----------
 
 def _job_out(job: Job, student: Student, applied: dict[int, ApplicationStatus]) -> JobOut:
-    reason = _ineligible_reason(student, job.min_cgpa)
+    reason = _ineligible_reason(student, job.min_cgpa, job.eligible_departments)
     return JobOut(
         id=job.id, title=job.title, job_type=job.job_type, company_name=job.recruiter.company_name,
         company_logo=job.recruiter.logo_path, description=job.description, location=job.location,
         salary=job.salary, required_skills=job.required_skills, min_cgpa=float(job.min_cgpa),
+        eligible_departments=job.eligible_departments,
         deadline=job.deadline, eligible=reason is None, ineligible_reason=reason,
         application_status=applied.get(job.id),
     )
@@ -178,7 +179,7 @@ def apply_to_job(body: ApplyRequest, db: Session = Depends(get_db), student: Stu
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
     if job.deadline < date.today():
         raise HTTPException(status.HTTP_409_CONFLICT, "Application deadline has passed")
-    if (reason := _ineligible_reason(student, job.min_cgpa)):
+    if (reason := _ineligible_reason(student, job.min_cgpa, job.eligible_departments)):
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"Not eligible: {reason}")
     if not student.resume_path:
         raise HTTPException(status.HTTP_409_CONFLICT, "Upload your resume before applying")

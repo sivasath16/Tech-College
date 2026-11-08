@@ -28,7 +28,7 @@ h2 { margin: 0 0 8px; } h3 { margin: 16px 0 8px; }
 .form { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; } .form.narrow, .narrow { max-width: 420px; margin: 40px auto; }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: .92rem; } .field small { font-weight: 400; }
-input, textarea { padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; font: inherit; width: 100%; }
+input, textarea, select { padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; font: inherit; width: 100%; }
 input:focus, textarea:focus { outline: 2px solid var(--teal-2); border-color: transparent; }
 .otp { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; } .otp input { width: 130px; }
 .alert { padding: 10px 14px; border-radius: 8px; font-size: .95rem; } .alert.error { background: #fdecea; color: var(--bad); } .alert.ok { background: #e6f6ee; color: var(--good); }
@@ -60,3 +60,8 @@ table { width: 100%; border-collapse: collapse; font-size: .92rem; } th, td { te
 .step.done { background: #e6f6ee; color: var(--good); border-color: #bfe5d0; } .step.current { background: var(--teal); color: #fff; border-color: var(--teal); font-weight: 700; }
 .step.rejected { background: #fdecea; color: var(--bad); border-color: #f3c3bd; font-weight: 700; }
 .note { margin: 6px 0 0; padding: 8px 12px; background: var(--bg); border-radius: 8px; font-size: .92rem; }
+
+/* Phase 4: recruiter dashboard */
+select { padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: #fff; min-width: 180px; }
+.actions.stack { align-items: stretch; } .note.stack { margin-top: 10px; gap: 10px; }
+input:disabled { background: var(--bg); color: var(--muted); }
