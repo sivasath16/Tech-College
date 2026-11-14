@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from app.core.database import SessionLocal
 from app.models import (
     Application, ApplicationStatus, Interview, Job, JobType, OfferLetter, OfferStatus, PlacementDrive, Recruiter,
+    VerificationStatus,
 )
 from tests.conftest import PNG, auth, register_recruiter, register_student
 
@@ -27,7 +28,8 @@ def _make_job(client, min_cgpa=7.0, deadline=None, active=True, approve=True):
     with SessionLocal() as db:
         job = Job(recruiter_id=rid, title="Backend Engineer", job_type=JobType.JOB, description="Build APIs",
                   location="Pune", salary="8 LPA", required_skills=["Python"], min_cgpa=min_cgpa,
-                  deadline=deadline or date.today() + timedelta(days=10), is_active=active)
+                  deadline=deadline or date.today() + timedelta(days=10), is_active=active,
+                  verification_status=VerificationStatus.APPROVED)
         db.add(job)
         db.commit()
         return job.id

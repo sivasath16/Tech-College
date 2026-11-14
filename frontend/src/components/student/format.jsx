@@ -7,7 +7,7 @@ export const fmtDateTime = (d) =>
 
 const TONE = {
   APPLIED: 'info', SHORTLISTED: 'warn', INTERVIEW_SCHEDULED: 'warn', INTERVIEWED: 'warn',
-  SELECTED: 'good', REJECTED: 'bad', ISSUED: 'good', ACCEPTED: 'good', DECLINED: 'bad', PENDING: 'info',
+  SELECTED: 'good', REJECTED: 'bad', ISSUED: 'good', APPROVED: 'good', ACCEPTED: 'good', DECLINED: 'bad', PENDING: 'info',
 }
 
 export function StatusBadge({ status }) {

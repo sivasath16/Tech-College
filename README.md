@@ -24,5 +24,6 @@ cd frontend && npm install && cp .env.example .env && npm run dev   # http://loc
 - Student: register with college ID, email, mobile (mock OTP, logged to server console), academic profile.
 - Recruiter: register with company details and logo; account is `PENDING` until an Admin approves it.
 - Recruiter (Phase 4): company profile + logo, job/internship postings (CGPA and department eligibility), candidate search, applicant review, shortlisting, interview scheduling, selection. Demo: `hr@acme.com` / `Passw0rdOK` after `scripts.seed_demo`.
+- Admin (Phase 5): dashboard summary, student database (search, record view, activate/deactivate, placement status), recruiter approval, **job verification (new postings stay hidden from students until approved)**, placement drives, announcements, application tracking, placement confirmation, audit log.
 - Roles (STUDENT / RECRUITER / ADMIN) enforced by `require_roles` on the API and `ProtectedRoute` in the UI.
 - Default admin (change in `.env`): `admin@college.edu` / `Admin@12345`.

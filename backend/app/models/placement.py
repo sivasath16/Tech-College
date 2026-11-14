@@ -4,7 +4,7 @@ from sqlalchemy import ARRAY, Boolean, Date, DateTime, Enum, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import ApplicationStatus, JobType, OfferStatus
+from app.models.enums import ApplicationStatus, JobType, OfferStatus, VerificationStatus
 from app.models.user import Recruiter, Student
 
 
@@ -36,6 +36,12 @@ class Job(Base):
     eligible_departments: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, server_default="{}")
     deadline: Mapped[date] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Admin verification: students see a job only once it is APPROVED (published).
+    verification_status: Mapped[VerificationStatus] = mapped_column(
+        Enum(VerificationStatus, name="verification_status"), default=VerificationStatus.PENDING
+    )
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    verified_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     recruiter: Mapped[Recruiter] = relationship()

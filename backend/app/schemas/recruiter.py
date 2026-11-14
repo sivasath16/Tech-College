@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models.enums import ApplicationStatus, JobType, OfferStatus, PlacementStatus
+from app.models.enums import ApplicationStatus, JobType, OfferStatus, PlacementStatus, VerificationStatus
 from app.schemas.student import InterviewOut
 
 
@@ -60,6 +60,8 @@ class RecruiterJobOut(BaseModel):
     eligible_departments: list[str]
     deadline: date
     is_active: bool
+    verification_status: VerificationStatus
+    rejection_reason: str | None
     expired: bool
     created_at: datetime
     applicants: int

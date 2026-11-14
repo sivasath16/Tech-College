@@ -66,7 +66,8 @@ def main() -> None:
 
         def job(rec, title, kind, location, salary, skills, cgpa, days, desc):
             j = Job(recruiter_id=rec.id, title=title, job_type=kind, description=desc, location=location,
-                    salary=salary, required_skills=skills, min_cgpa=cgpa, deadline=today + timedelta(days=days))
+                    salary=salary, required_skills=skills, min_cgpa=cgpa, deadline=today + timedelta(days=days),
+                    verification_status=VerificationStatus.APPROVED)
             db.add(j)
             return j
 

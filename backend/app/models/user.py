@@ -87,6 +87,8 @@ class AuditLog(Base):
     details: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    admin: Mapped["User"] = relationship(foreign_keys=[admin_id])
+
 
 class OtpVerification(Base):
     __tablename__ = "otp_verifications"

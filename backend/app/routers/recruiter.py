@@ -72,6 +72,7 @@ def _job_out(db: Session, job: Job) -> RecruiterJobOut:
         id=job.id, title=job.title, job_type=job.job_type, description=job.description, location=job.location,
         salary=job.salary, required_skills=job.required_skills, min_cgpa=float(job.min_cgpa),
         eligible_departments=job.eligible_departments, deadline=job.deadline, is_active=job.is_active,
+        verification_status=job.verification_status, rejection_reason=job.rejection_reason,
         expired=job.deadline < date.today(), created_at=job.created_at,
         applicants=sum(counts.values()), shortlisted=counts.get(ApplicationStatus.SHORTLISTED, 0),
         selected=counts.get(ApplicationStatus.SELECTED, 0),
@@ -111,6 +112,9 @@ def update_job(job_id: int, body: JobIn, db: Session = Depends(get_db),
     job = _own_job(db, recruiter, job_id)
     for field, value in body.model_dump().items():
         setattr(job, field, value)
+    # Any edit sends the posting back to the placement cell, so students never see unverified content.
+    job.verification_status = VerificationStatus.PENDING
+    job.rejection_reason = None
     db.commit()
     return _job_out(db, job)
 

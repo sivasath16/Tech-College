@@ -142,6 +142,7 @@ def list_jobs(job_type: JobType | None = None, q: str | None = None, db: Session
               student: Student = Depends(current_student)):
     query = (select(Job).join(Recruiter).options(joinedload(Job.recruiter))
              .where(Job.is_active.is_(True), Job.deadline >= date.today(),
+                    Job.verification_status == VerificationStatus.APPROVED,
                     Recruiter.verification_status == VerificationStatus.APPROVED)
              .order_by(Job.deadline, Job.id))
     if job_type:
@@ -174,7 +175,7 @@ def _applications(db: Session, student: Student) -> list[Application]:
 @router.post("/applications", response_model=ApplicationOut, status_code=status.HTTP_201_CREATED)
 def apply_to_job(body: ApplyRequest, db: Session = Depends(get_db), student: Student = Depends(current_student)):
     job = db.get(Job, body.job_id)
-    if (job is None or not job.is_active
+    if (job is None or not job.is_active or job.verification_status != VerificationStatus.APPROVED
             or job.recruiter.verification_status != VerificationStatus.APPROVED):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
     if job.deadline < date.today():

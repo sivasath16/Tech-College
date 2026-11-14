@@ -30,9 +30,13 @@ def _student(client, resume=True, **over):
     return h
 
 
-def _job(client, h, **over):
+def _job(client, h, publish=True, **over):
     r = client.post(f"{R}/jobs", json={**JOB, **over}, headers=h)
     assert r.status_code == 201, r.text
+    assert r.json()["verification_status"] == "PENDING"
+    if publish:  # the placement cell verifies the posting before students can see it
+        approved = client.post(f"/api/v1/admin/jobs/{r.json()['id']}/approve", headers=auth(client, *ADMIN))
+        assert approved.status_code == 200, approved.text
     return r.json()["id"]
 
 
