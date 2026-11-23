@@ -1,6 +1,6 @@
 from datetime import date, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import func, literal, select
 from sqlalchemy.orm import Session, joinedload
@@ -9,15 +9,15 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import require_roles
 from app.models import (
-    Application, ApplicationStatus, Interview, Job, PlacementStatus, Recruiter, Role, Student, User,
-    VerificationStatus,
+    Application, ApplicationStatus, Interview, Job, OfferLetter, OfferStatus, PlacementStatus, Recruiter, Role,
+    Student, User, VerificationStatus,
 )
 from app.schemas.auth import RecruiterOut
 from app.schemas.recruiter import (
     ApplicantOut, CandidateOut, CompanyProfileUpdate, InterviewIn, JobIn, RecruiterJobOut, RecruiterSummary,
     StatusUpdate,
 )
-from app.services import delete_file, save_logo, utcnow
+from app.services import delete_file, record_event, save_document, save_logo, utcnow
 
 router = APIRouter(prefix="/recruiter", tags=["Recruiter"])
 
@@ -185,14 +185,17 @@ def _applicant_out(a: Application) -> ApplicantOut:
         updated_at=a.updated_at, email=a.student.user.email, mobile=a.student.mobile,
         student=CandidateOut.model_validate({**a.student.__dict__, "has_resume": bool(a.student.resume_path)}),
         skills_match=[s for s in a.student.skills if s.lower() in wanted], interviews=a.interviews,
-        offer_status=a.offer.status if a.offer else None,
+        offer_status=a.offer.status if a.offer else None, offer_package=a.offer.package if a.offer else None,
+        offer_joining_date=a.offer.joining_date if a.offer else None,
+        offer_has_file=bool(a.offer and a.offer.file_path), timeline=a.events,
     )
 
 
 def _own_application(db: Session, recruiter: Recruiter, application_id: int) -> Application:
     a = db.scalar(select(Application).where(Application.id == application_id).options(
         joinedload(Application.job), joinedload(Application.student).joinedload(Student.user),
-        joinedload(Application.interviews), joinedload(Application.offer)))
+        joinedload(Application.interviews), joinedload(Application.offer),
+        joinedload(Application.events)))
     if a is None or a.job.recruiter_id != recruiter.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
     return a
@@ -203,7 +206,8 @@ def list_applications(job_id: int | None = None, status_filter: ApplicationStatu
                       db: Session = Depends(get_db), recruiter: Recruiter = Depends(current_recruiter)):
     query = (select(Application).join(Job).where(Job.recruiter_id == recruiter.id)
              .options(joinedload(Application.job), joinedload(Application.student).joinedload(Student.user),
-                      joinedload(Application.interviews), joinedload(Application.offer))
+                      joinedload(Application.interviews), joinedload(Application.offer),
+                      joinedload(Application.events))
              .order_by(Application.id.desc()))
     if job_id is not None:
         query = query.where(Application.job_id == job_id)
@@ -219,6 +223,7 @@ def update_status(application_id: int, body: StatusUpdate, db: Session = Depends
     target = ApplicationStatus(body.status)
     if target not in TRANSITIONS.get(a.status, set()):
         raise HTTPException(status.HTTP_409_CONFLICT, f"Cannot change status from {a.status.value} to {target.value}")
+    record_event(db, a, a.status, target, "RECRUITER")
     a.status = target
     db.commit()
     return _applicant_out(a)
@@ -235,6 +240,8 @@ def schedule_interview(application_id: int, body: InterviewIn, db: Session = Dep
     if when <= utcnow():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Interview must be scheduled in the future")
     a.interviews.append(Interview(scheduled_at=when, mode=body.mode, location=body.location.strip(), notes=body.notes))
+    if a.status != ApplicationStatus.INTERVIEW_SCHEDULED:
+        record_event(db, a, a.status, ApplicationStatus.INTERVIEW_SCHEDULED, "RECRUITER", f"{body.mode} interview")
     a.status = ApplicationStatus.INTERVIEW_SCHEDULED
     db.commit()
     db.refresh(a)
@@ -249,6 +256,41 @@ def download_resume(application_id: int, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Candidate has no resume")
     path = settings.upload_dir / a.student.resume_path
     return FileResponse(path, filename=f"{a.student.college_id}_resume{path.suffix}")
+
+
+# ---------- offer letters ----------
+
+@router.post("/applications/{application_id}/offer", response_model=ApplicantOut)
+async def issue_offer(application_id: int, package: str = Form(min_length=2, max_length=100),
+                      joining_date: date | None = Form(default=None), file: UploadFile = File(),
+                      db: Session = Depends(get_db), recruiter: Recruiter = Depends(current_recruiter)):
+    """Upload (or replace) the offer letter PDF for a selected candidate and issue it to the student."""
+    a = _own_application(db, recruiter, application_id)
+    if a.status != ApplicationStatus.SELECTED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Offer letters can only be issued to selected candidates")
+    if a.offer and a.offer.status == OfferStatus.ACCEPTED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "The candidate has already accepted this offer")
+    if joining_date and joining_date <= date.today():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Joining date must be in the future")
+    path = await save_document(file, "offers", {".pdf"})
+    old_path = a.offer.file_path if a.offer else None
+    if a.offer is None:
+        a.offer = OfferLetter()
+    a.offer.status, a.offer.package, a.offer.joining_date, a.offer.file_path = (
+        OfferStatus.ISSUED, package.strip(), joining_date, path)
+    db.commit()
+    delete_file(old_path)
+    db.refresh(a)
+    return _applicant_out(a)
+
+
+@router.get("/applications/{application_id}/offer/file")
+def download_offer(application_id: int, db: Session = Depends(get_db),
+                   recruiter: Recruiter = Depends(current_recruiter)):
+    a = _own_application(db, recruiter, application_id)
+    if a.offer is None or not a.offer.file_path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No offer letter uploaded")
+    return FileResponse(settings.upload_dir / a.offer.file_path, filename=f"{a.student.college_id}_offer_letter.pdf")
 
 
 # ---------- dashboard summary ----------

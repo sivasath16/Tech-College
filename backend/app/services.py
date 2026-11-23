@@ -80,3 +80,11 @@ async def save_document(file: UploadFile, folder_name: str, allowed: set[str]) -
 def delete_file(relative_path: str | None) -> None:
     if relative_path:
         (Path(settings.upload_dir) / relative_path).unlink(missing_ok=True)
+
+
+def record_event(db, application, from_status, to_status, actor: str, note: str | None = None) -> None:
+    """Append a transition to the application's timeline (`from_status` is None for the first entry)."""
+    from app.models import ApplicationEvent
+
+    db.add(ApplicationEvent(application_id=application.id, from_status=from_status, to_status=to_status,
+                            actor=actor, note=note))

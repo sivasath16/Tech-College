@@ -1,8 +1,9 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models.enums import ApplicationStatus, JobType, OfferStatus
+from app.models.enums import ApplicationStatus, JobType, OfferStatus, RegistrationStatus
 
 
 class ProfileUpdate(BaseModel):
@@ -72,6 +73,17 @@ class OfferOut(BaseModel):
     status: OfferStatus
     package: str | None
     joining_date: date | None
+    has_file: bool = False
+
+
+class EventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    from_status: ApplicationStatus | None
+    to_status: ApplicationStatus
+    actor: str
+    note: str | None
+    created_at: datetime
 
 
 class ApplicationOut(BaseModel):
@@ -85,6 +97,7 @@ class ApplicationOut(BaseModel):
     updated_at: datetime
     interviews: list[InterviewOut]
     offer: OfferOut | None
+    timeline: list[EventOut] = []
 
 
 class DriveOut(BaseModel):
@@ -98,6 +111,19 @@ class DriveOut(BaseModel):
     departments: list[str]
     eligible: bool
     ineligible_reason: str | None
+    registration_status: RegistrationStatus | None = None
+
+
+class AttendanceOut(BaseModel):
+    drive_id: int
+    title: str
+    company_name: str
+    drive_date: datetime
+    status: RegistrationStatus
+
+
+class OfferDecision(BaseModel):
+    decision: Literal["ACCEPT", "DECLINE"]
 
 
 class InterviewUpdateOut(BaseModel):
@@ -117,6 +143,7 @@ class OfferUpdateOut(BaseModel):
     status: OfferStatus
     package: str | None
     joining_date: date | None
+    has_file: bool = False
 
 
 class DashboardSummary(BaseModel):

@@ -41,7 +41,7 @@ function Overview({ user, summary }) {
 }
 
 export default function StudentDashboard() {
-  const { user } = useAuth()
+  const { user, reload } = useAuth()
   const [tab, setTab] = useState('overview')
   const [summary, setSummary] = useState(null)
 
@@ -71,7 +71,7 @@ export default function StudentDashboard() {
       {tab === 'documents' && <DocumentsPanel onChange={loadSummary} />}
       {tab === 'jobs' && <JobsPanel onApplied={loadSummary} />}
       {tab === 'applications' && <ApplicationsPanel />}
-      {tab === 'updates' && <UpdatesPanel />}
+      {tab === 'updates' && <UpdatesPanel onChange={() => { loadSummary(); reload() }} />}
     </div>
   )
 }

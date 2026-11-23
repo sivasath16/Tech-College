@@ -4,7 +4,7 @@ from sqlalchemy import ARRAY, Boolean, Date, DateTime, Enum, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import ApplicationStatus, JobType, OfferStatus, VerificationStatus
+from app.models.enums import ApplicationStatus, JobType, OfferStatus, RegistrationStatus, VerificationStatus
 from app.models.user import Recruiter, Student
 
 
@@ -64,6 +64,21 @@ class Application(Base):
     job: Mapped[Job] = relationship()
     interviews: Mapped[list["Interview"]] = relationship(back_populates="application", order_by="Interview.scheduled_at")
     offer: Mapped["OfferLetter | None"] = relationship(back_populates="application", uselist=False)
+    events: Mapped[list["ApplicationEvent"]] = relationship(order_by="ApplicationEvent.id", cascade="all, delete-orphan")
+
+
+class ApplicationEvent(Base):
+    """One row per status transition: the application's audit timeline."""
+
+    __tablename__ = "application_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"), index=True)
+    from_status: Mapped[ApplicationStatus | None] = mapped_column(Enum(ApplicationStatus, name="application_status"))
+    to_status: Mapped[ApplicationStatus] = mapped_column(Enum(ApplicationStatus, name="application_status"))
+    actor: Mapped[str] = mapped_column(String(20))
+    note: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Interview(Base):
@@ -87,6 +102,7 @@ class OfferLetter(Base):
     status: Mapped[OfferStatus] = mapped_column(Enum(OfferStatus, name="offer_status"), default=OfferStatus.PENDING)
     package: Mapped[str | None] = mapped_column(String(100))
     joining_date: Mapped[date | None] = mapped_column(Date)
+    file_path: Mapped[str | None] = mapped_column(String(255))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     application: Mapped[Application] = relationship(back_populates="offer")
@@ -104,3 +120,20 @@ class PlacementDrive(Base):
     min_cgpa: Mapped[float] = mapped_column(Numeric(4, 2), default=0)
     departments: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DriveRegistration(Base):
+    __tablename__ = "drive_registrations"
+    __table_args__ = (UniqueConstraint("drive_id", "student_id", name="uq_drive_registration"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    drive_id: Mapped[int] = mapped_column(ForeignKey("placement_drives.id", ondelete="CASCADE"), index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), index=True)
+    status: Mapped[RegistrationStatus] = mapped_column(
+        Enum(RegistrationStatus, name="registration_status"), default=RegistrationStatus.REGISTERED
+    )
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    marked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    drive: Mapped[PlacementDrive] = relationship()
+    student: Mapped[Student] = relationship()

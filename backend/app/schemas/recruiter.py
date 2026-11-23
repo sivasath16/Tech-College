@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import ApplicationStatus, JobType, OfferStatus, PlacementStatus, VerificationStatus
-from app.schemas.student import InterviewOut
+from app.schemas.student import EventOut, InterviewOut
 
 
 def _clean_list(values: list[str], limit: int) -> list[str]:
@@ -100,6 +100,10 @@ class ApplicantOut(BaseModel):
     skills_match: list[str]
     interviews: list[InterviewOut]
     offer_status: OfferStatus | None
+    offer_package: str | None = None
+    offer_joining_date: date | None = None
+    offer_has_file: bool = False
+    timeline: list[EventOut] = []
 
 
 class StatusUpdate(BaseModel):

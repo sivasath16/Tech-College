@@ -1,8 +1,9 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models.enums import ApplicationStatus, JobType, PlacementStatus, VerificationStatus
+from app.models.enums import ApplicationStatus, JobType, PlacementStatus, RegistrationStatus, VerificationStatus
 from app.schemas.auth import StudentAdminOut
 from app.schemas.student import DocumentOut
 
@@ -98,6 +99,9 @@ class DriveOut(BaseModel):
     min_cgpa: float
     departments: list[str]
     upcoming: bool = True
+    registered: int = 0
+    present: int = 0
+    absent: int = 0
 
 
 class AdminApplicationOut(BaseModel):
@@ -127,3 +131,31 @@ class AuditLogOut(BaseModel):
     details: dict | None
     created_at: datetime
     admin_email: str
+
+
+class RegistrationRow(BaseModel):
+    id: int
+    student_id: int
+    college_id: str
+    student_name: str
+    department: str
+    degree_cgpa: float
+    status: RegistrationStatus
+    registered_at: datetime
+    marked_at: datetime | None
+
+
+class AttendanceUpdate(BaseModel):
+    status: Literal["PRESENT", "ABSENT"]
+
+
+class DriveParticipation(BaseModel):
+    drive_id: int
+    title: str
+    started: bool
+    registered: int
+    present: int
+    absent: int
+    pending: int
+    attendance_percent: float
+    registrations: list[RegistrationRow]

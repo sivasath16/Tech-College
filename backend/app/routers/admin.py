@@ -9,12 +9,12 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import require_roles
 from app.models import (
-    Announcement, Application, ApplicationStatus, AuditLog, Job, PlacementDrive, PlacementStatus, Recruiter, Role,
-    Student, StudentDocument, User, VerificationStatus,
+    Announcement, Application, ApplicationStatus, AuditLog, DriveRegistration, Job, PlacementDrive, PlacementStatus,
+    Recruiter, RegistrationStatus, Role, Student, StudentDocument, User, VerificationStatus,
 )
 from app.schemas.admin import (
-    ActiveUpdate, AdminApplicationOut, AdminJobOut, AdminSummary, AuditLogOut, DriveIn, DriveOut, PlacementUpdate,
-    StudentApplicationBrief, StudentDetail, StudentRow,
+    ActiveUpdate, AdminApplicationOut, AdminJobOut, AdminSummary, AttendanceUpdate, AuditLogOut, DriveIn, DriveOut,
+    DriveParticipation, PlacementUpdate, RegistrationRow, StudentApplicationBrief, StudentDetail, StudentRow,
 )
 from app.schemas.auth import AnnouncementCreate, AnnouncementOut, RecruiterAdminOut, RejectRequest
 from app.services import utcnow
@@ -220,8 +220,23 @@ def _aware(dt):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def _drive_out(d: PlacementDrive) -> DriveOut:
-    return DriveOut.model_validate({**d.__dict__, "min_cgpa": float(d.min_cgpa), "upcoming": d.drive_date >= utcnow()})
+def _drive_out(d: PlacementDrive, counts: dict[RegistrationStatus, int] | None = None) -> DriveOut:
+    counts = counts or {}
+    return DriveOut.model_validate({
+        **d.__dict__, "min_cgpa": float(d.min_cgpa), "upcoming": d.drive_date >= utcnow(),
+        "registered": sum(counts.values()), "present": counts.get(RegistrationStatus.PRESENT, 0),
+        "absent": counts.get(RegistrationStatus.ABSENT, 0)})
+
+
+def _drive_counts(db: Session, drive_id: int | None = None) -> dict[int, dict[RegistrationStatus, int]]:
+    query = select(DriveRegistration.drive_id, DriveRegistration.status, func.count()).group_by(
+        DriveRegistration.drive_id, DriveRegistration.status)
+    if drive_id is not None:
+        query = query.where(DriveRegistration.drive_id == drive_id)
+    out: dict[int, dict[RegistrationStatus, int]] = {}
+    for did, st, n in db.execute(query):
+        out.setdefault(did, {})[st] = n
+    return out
 
 
 def _get_drive(db: Session, drive_id: int) -> PlacementDrive:
@@ -233,7 +248,9 @@ def _get_drive(db: Session, drive_id: int) -> PlacementDrive:
 
 @router.get("/drives", response_model=list[DriveOut])
 def list_drives(db: Session = Depends(get_db), _: User = Depends(admin_only)):
-    return [_drive_out(d) for d in db.scalars(select(PlacementDrive).order_by(PlacementDrive.drive_date.desc()))]
+    counts = _drive_counts(db)
+    return [_drive_out(d, counts.get(d.id)) for d in
+            db.scalars(select(PlacementDrive).order_by(PlacementDrive.drive_date.desc()))]
 
 
 @router.post("/drives", response_model=DriveOut, status_code=status.HTTP_201_CREATED)
@@ -261,7 +278,48 @@ def update_drive(drive_id: int, body: DriveIn, db: Session = Depends(get_db), ad
         setattr(drive, field, _aware(value) if field == "drive_date" else value)
     _audit(db, admin, "DRIVE_UPDATED", "drive", drive.id, title=drive.title)
     db.commit()
-    return _drive_out(drive)
+    return _drive_out(drive, _drive_counts(db, drive.id).get(drive.id))
+
+
+@router.get("/drives/{drive_id}/participation", response_model=DriveParticipation)
+def drive_participation(drive_id: int, db: Session = Depends(get_db), _: User = Depends(admin_only)):
+    """Registrations, attendance and participation rate for one drive."""
+    drive = _get_drive(db, drive_id)
+    regs = db.scalars(select(DriveRegistration).where(DriveRegistration.drive_id == drive_id)
+                      .options(joinedload(DriveRegistration.student)).order_by(DriveRegistration.id)).all()
+    counts = {st: sum(r.status == st for r in regs) for st in RegistrationStatus}
+    marked = counts[RegistrationStatus.PRESENT] + counts[RegistrationStatus.ABSENT]
+    return DriveParticipation(
+        drive_id=drive.id, title=drive.title, started=drive.drive_date <= utcnow(), registered=len(regs),
+        present=counts[RegistrationStatus.PRESENT], absent=counts[RegistrationStatus.ABSENT],
+        pending=counts[RegistrationStatus.REGISTERED],
+        attendance_percent=round(100 * counts[RegistrationStatus.PRESENT] / marked, 1) if marked else 0,
+        registrations=[RegistrationRow(
+            id=r.id, student_id=r.student_id, college_id=r.student.college_id, student_name=r.student.full_name,
+            department=r.student.department, degree_cgpa=float(r.student.degree_cgpa), status=r.status,
+            registered_at=r.registered_at, marked_at=r.marked_at) for r in regs])
+
+
+@router.patch("/drives/{drive_id}/registrations/{registration_id}/attendance", response_model=RegistrationRow)
+def mark_attendance(drive_id: int, registration_id: int, body: AttendanceUpdate, db: Session = Depends(get_db),
+                    admin: User = Depends(admin_only)):
+    drive = _get_drive(db, drive_id)
+    reg = db.scalar(select(DriveRegistration).where(DriveRegistration.id == registration_id,
+                                                    DriveRegistration.drive_id == drive_id)
+                    .options(joinedload(DriveRegistration.student)))
+    if reg is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Registration not found")
+    if drive.drive_date > utcnow():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Attendance can only be marked once the drive has started")
+    reg.status = RegistrationStatus(body.status)
+    reg.marked_at = utcnow()
+    _audit(db, admin, f"ATTENDANCE_{body.status}", "drive_registration", reg.id, drive=drive.title,
+           college_id=reg.student.college_id)
+    db.commit()
+    s = reg.student
+    return RegistrationRow(id=reg.id, student_id=s.id, college_id=s.college_id, student_name=s.full_name,
+                           department=s.department, degree_cgpa=float(s.degree_cgpa), status=reg.status,
+                           registered_at=reg.registered_at, marked_at=reg.marked_at)
 
 
 @router.delete("/drives/{drive_id}", status_code=status.HTTP_204_NO_CONTENT)

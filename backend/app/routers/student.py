@@ -9,15 +9,15 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import require_roles
 from app.models import (
-    Application, ApplicationStatus, Job, JobType, PlacementDrive, Recruiter, Role, Student,
-    StudentDocument, User, VerificationStatus,
+    Application, ApplicationStatus, DriveRegistration, Job, JobType, OfferStatus, PlacementDrive, PlacementStatus,
+    Recruiter, RegistrationStatus, Role, Student, StudentDocument, User, VerificationStatus,
 )
 from app.schemas.auth import StudentOut
 from app.schemas.student import (
     ApplicationOut, ApplyRequest, DashboardSummary, DocumentOut, DocumentsOut, DriveOut, InterviewUpdateOut, JobOut,
-    OfferUpdateOut, ProfileUpdate,
+    AttendanceOut, OfferDecision, OfferOut, OfferUpdateOut, ProfileUpdate,
 )
-from app.services import CERTIFICATE_EXTS, RESUME_EXTS, delete_file, save_document, utcnow
+from app.services import CERTIFICATE_EXTS, RESUME_EXTS, delete_file, record_event, save_document, utcnow
 
 router = APIRouter(prefix="/student", tags=["Student"])
 
@@ -160,7 +160,9 @@ def _application_out(a: Application) -> ApplicationOut:
     return ApplicationOut(
         id=a.id, job_id=a.job_id, job_title=a.job.title, job_type=a.job.job_type,
         company_name=a.job.recruiter.company_name, status=a.status, applied_at=a.applied_at,
-        updated_at=a.updated_at, interviews=a.interviews, offer=a.offer,
+        updated_at=a.updated_at, interviews=a.interviews, timeline=a.events,
+        offer=OfferOut(status=a.offer.status, package=a.offer.package, joining_date=a.offer.joining_date,
+                       has_file=bool(a.offer.file_path)) if a.offer else None,
     )
 
 
@@ -168,7 +170,7 @@ def _applications(db: Session, student: Student) -> list[Application]:
     return list(db.scalars(
         select(Application).where(Application.student_id == student.id).order_by(Application.id.desc())
         .options(joinedload(Application.job).joinedload(Job.recruiter), joinedload(Application.offer),
-                 joinedload(Application.interviews))
+                 joinedload(Application.interviews), joinedload(Application.events))
     ).unique())
 
 
@@ -188,6 +190,8 @@ def apply_to_job(body: ApplyRequest, db: Session = Depends(get_db), student: Stu
         raise HTTPException(status.HTTP_409_CONFLICT, "You have already applied to this job")
     application = Application(student_id=student.id, job_id=job.id, status=ApplicationStatus.APPLIED)
     db.add(application)
+    db.flush()
+    record_event(db, application, None, ApplicationStatus.APPLIED, "STUDENT", "Application submitted")
     db.commit()
     db.refresh(application)
     return _application_out(application)
@@ -200,17 +204,76 @@ def list_applications(db: Session = Depends(get_db), student: Student = Depends(
 
 # ---------- placement drives, interviews, offers ----------
 
+def _drive_out(d: PlacementDrive, student: Student, registration: RegistrationStatus | None) -> DriveOut:
+    reason = _ineligible_reason(student, d.min_cgpa, d.departments)
+    return DriveOut(id=d.id, title=d.title, company_name=d.company_name, description=d.description, venue=d.venue,
+                    drive_date=d.drive_date, min_cgpa=float(d.min_cgpa), departments=d.departments,
+                    eligible=reason is None, ineligible_reason=reason, registration_status=registration)
+
+
 @router.get("/drives", response_model=list[DriveOut])
 def list_drives(db: Session = Depends(get_db), student: Student = Depends(current_student)):
     drives = db.scalars(select(PlacementDrive).where(PlacementDrive.drive_date >= utcnow())
                         .order_by(PlacementDrive.drive_date))
+    registered = _registrations(db, student)
     out = []
     for d in drives:
         reason = _ineligible_reason(student, d.min_cgpa, d.departments)
         out.append(DriveOut(id=d.id, title=d.title, company_name=d.company_name, description=d.description,
                             venue=d.venue, drive_date=d.drive_date, min_cgpa=float(d.min_cgpa),
-                            departments=d.departments, eligible=reason is None, ineligible_reason=reason))
+                            departments=d.departments, eligible=reason is None, ineligible_reason=reason,
+                            registration_status=registered.get(d.id)))
     return out
+
+
+def _registrations(db: Session, student: Student) -> dict[int, RegistrationStatus]:
+    rows = db.execute(select(DriveRegistration.drive_id, DriveRegistration.status)
+                      .where(DriveRegistration.student_id == student.id))
+    return {drive_id: st for drive_id, st in rows}
+
+
+def _upcoming_drive(db: Session, drive_id: int) -> PlacementDrive:
+    drive = db.get(PlacementDrive, drive_id)
+    if drive is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Drive not found")
+    if drive.drive_date < utcnow():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Registration is closed: the drive has already started")
+    return drive
+
+
+@router.post("/drives/{drive_id}/register", response_model=DriveOut, status_code=status.HTTP_201_CREATED)
+def register_for_drive(drive_id: int, db: Session = Depends(get_db), student: Student = Depends(current_student)):
+    drive = _upcoming_drive(db, drive_id)
+    if (reason := _ineligible_reason(student, drive.min_cgpa, drive.departments)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"Not eligible: {reason}")
+    if db.scalar(select(DriveRegistration.id).where(DriveRegistration.drive_id == drive.id,
+                                                    DriveRegistration.student_id == student.id)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "You are already registered for this drive")
+    db.add(DriveRegistration(drive_id=drive.id, student_id=student.id))
+    db.commit()
+    return _drive_out(drive, student, RegistrationStatus.REGISTERED)
+
+
+@router.delete("/drives/{drive_id}/register", response_model=DriveOut)
+def cancel_drive_registration(drive_id: int, db: Session = Depends(get_db),
+                              student: Student = Depends(current_student)):
+    drive = _upcoming_drive(db, drive_id)
+    reg = db.scalar(select(DriveRegistration).where(DriveRegistration.drive_id == drive.id,
+                                                    DriveRegistration.student_id == student.id))
+    if reg is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "You are not registered for this drive")
+    db.delete(reg)
+    db.commit()
+    return _drive_out(drive, student, None)
+
+
+@router.get("/attendance", response_model=list[AttendanceOut])
+def my_attendance(db: Session = Depends(get_db), student: Student = Depends(current_student)):
+    """Drives the student registered for, with the attendance the placement cell recorded."""
+    rows = db.scalars(select(DriveRegistration).where(DriveRegistration.student_id == student.id)
+                      .options(joinedload(DriveRegistration.drive)).order_by(DriveRegistration.id.desc()))
+    return [AttendanceOut(drive_id=r.drive_id, title=r.drive.title, company_name=r.drive.company_name,
+                          drive_date=r.drive.drive_date, status=r.status) for r in rows]
 
 
 @router.get("/interviews", response_model=list[InterviewUpdateOut])
@@ -225,8 +288,46 @@ def list_interviews(db: Session = Depends(get_db), student: Student = Depends(cu
 @router.get("/offers", response_model=list[OfferUpdateOut])
 def list_offers(db: Session = Depends(get_db), student: Student = Depends(current_student)):
     return [OfferUpdateOut(application_id=a.id, job_title=a.job.title, company_name=a.job.recruiter.company_name,
-                           status=a.offer.status, package=a.offer.package, joining_date=a.offer.joining_date)
+                           status=a.offer.status, package=a.offer.package, joining_date=a.offer.joining_date,
+                           has_file=bool(a.offer.file_path))
             for a in _applications(db, student) if a.offer]
+
+
+def _own_offer(db: Session, student: Student, application_id: int) -> Application:
+    a = db.scalar(select(Application).where(Application.id == application_id, Application.student_id == student.id)
+                  .options(joinedload(Application.offer), joinedload(Application.job)))
+    if a is None or a.offer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
+    return a
+
+
+@router.get("/offers/{application_id}/file")
+def download_offer_letter(application_id: int, db: Session = Depends(get_db),
+                          student: Student = Depends(current_student)):
+    offer = _own_offer(db, student, application_id).offer
+    if not offer.file_path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No offer letter file uploaded yet")
+    return FileResponse(settings.upload_dir / offer.file_path, filename=f"{student.college_id}_offer_letter.pdf")
+
+
+@router.post("/offers/{application_id}/respond", response_model=OfferUpdateOut)
+def respond_to_offer(application_id: int, body: OfferDecision, db: Session = Depends(get_db),
+                     student: Student = Depends(current_student)):
+    """Accepting an issued offer marks the student PLACED; only one offer can be accepted."""
+    a = _own_offer(db, student, application_id)
+    if a.offer.status != OfferStatus.ISSUED:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Offer is {a.offer.status.value.lower()}, no response needed")
+    if body.decision == "ACCEPT":
+        if student.placement_status == PlacementStatus.PLACED:
+            raise HTTPException(status.HTTP_409_CONFLICT, "You have already accepted another offer")
+        a.offer.status = OfferStatus.ACCEPTED
+        student.placement_status = PlacementStatus.PLACED
+    else:
+        a.offer.status = OfferStatus.DECLINED
+    db.commit()
+    return OfferUpdateOut(application_id=a.id, job_title=a.job.title, company_name=a.job.recruiter.company_name,
+                          status=a.offer.status, package=a.offer.package, joining_date=a.offer.joining_date,
+                          has_file=bool(a.offer.file_path))
 
 
 @router.get("/summary", response_model=DashboardSummary)

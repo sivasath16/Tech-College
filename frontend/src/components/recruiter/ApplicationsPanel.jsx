@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import api, { errorMessage } from '../../api'
-import { fmtDateTime, openFile, StatusBadge, Tracker } from '../student/format'
+import { fmtDate, fmtDateTime, openFile, StatusBadge, Timeline, Tracker } from '../student/format'
 
 const STATUSES = ['', 'APPLIED', 'SHORTLISTED', 'INTERVIEW_SCHEDULED', 'INTERVIEWED', 'SELECTED', 'REJECTED']
 
@@ -31,12 +31,39 @@ function InterviewForm({ id, onDone, onCancel }) {
   )
 }
 
+function OfferForm({ a, onDone, onCancel }) {
+  const [package_, setPackage] = useState(a.offer_package || '')
+  const [joining, setJoining] = useState(a.offer_joining_date || '')
+  const [file, setFile] = useState(null)
+  const [error, setError] = useState('')
+  const submit = async (e) => {
+    e.preventDefault(); setError('')
+    const body = new FormData()
+    body.append('package', package_)
+    if (joining) body.append('joining_date', joining)
+    body.append('file', file)
+    try { await api.post(`/recruiter/applications/${a.id}/offer`, body); onDone() } catch (err) { setError(errorMessage(err)) }
+  }
+  return (
+    <form className="note stack" onSubmit={submit}>
+      {error && <div className="alert error">{error}</div>}
+      <div className="cols">
+        <label className="field"><span>Package</span><input required minLength={2} placeholder="e.g. 9 LPA" value={package_} onChange={(e) => setPackage(e.target.value)} /></label>
+        <label className="field"><span>Joining date</span><input type="date" value={joining} onChange={(e) => setJoining(e.target.value)} /></label>
+        <label className="field"><span>Offer letter (PDF, up to 5 MB)</span><input required type="file" accept=".pdf" className="file" onChange={(e) => setFile(e.target.files[0])} /></label>
+      </div>
+      <div className="row"><button className="btn small">{a.offer_status ? 'Replace and re-issue offer' : 'Issue offer letter'}</button><button type="button" className="btn small ghost" onClick={onCancel}>Cancel</button></div>
+    </form>
+  )
+}
+
 export default function ApplicationsPanel({ jobId, onChange }) {
   const [jobs, setJobs] = useState([])
   const [job, setJob] = useState(jobId || '')
   const [status, setStatus] = useState('')
   const [rows, setRows] = useState(null)
   const [scheduling, setScheduling] = useState(null)
+  const [offering, setOffering] = useState(null)
   const [msg, setMsg] = useState(null)
 
   useEffect(() => { api.get('/recruiter/jobs').then((r) => setJobs(r.data)).catch(() => {}) }, [])
@@ -90,14 +117,22 @@ export default function ApplicationsPanel({ jobId, onChange }) {
           <p>Skills: {a.student.skills.join(', ') || '—'}{a.skills_match.length > 0 && <> · <span className="good">matches {a.skills_match.join(', ')}</span></>}</p>
           <Tracker status={a.status} />
           {a.interviews.map((i) => <p className="note" key={i.id}>🗓 {fmtDateTime(i.scheduled_at)} · {i.mode} · {i.location}{i.notes && ` — ${i.notes}`}</p>)}
+          {a.offer_status && (
+            <p className="note">Offer letter: <StatusBadge status={a.offer_status} /> {a.offer_package && `· ${a.offer_package}`}{a.offer_joining_date && ` · joining ${fmtDate(a.offer_joining_date)}`}
+              {a.offer_has_file && <> · <button className="link" onClick={() => openFile(`/recruiter/applications/${a.id}/offer/file`).catch((e) => setMsg({ ok: false, text: errorMessage(e) }))}>View letter</button></>}
+            </p>
+          )}
+          <details className="history"><summary>Status history ({a.timeline.length})</summary><Timeline events={a.timeline} /></details>
           <div className="row">
             {a.student.has_resume && <button className="btn small outline" onClick={() => openFile(`/recruiter/applications/${a.id}/resume`).catch((e) => setMsg({ ok: false, text: errorMessage(e) }))}>View resume</button>}
             {a.status === 'APPLIED' && <button className="btn small" onClick={() => move(a, 'SHORTLISTED')}>Shortlist</button>}
             {['SHORTLISTED', 'INTERVIEW_SCHEDULED', 'INTERVIEWED'].includes(a.status) && <button className="btn small" onClick={() => setScheduling(a.id)}>{a.status === 'SHORTLISTED' ? 'Schedule interview' : 'Add interview round'}</button>}
             {a.status === 'INTERVIEW_SCHEDULED' && <button className="btn small" onClick={() => move(a, 'INTERVIEWED')}>Mark interviewed</button>}
             {a.status === 'INTERVIEWED' && <button className="btn small" onClick={() => move(a, 'SELECTED')}>Select</button>}
+            {a.status === 'SELECTED' && a.offer_status !== 'ACCEPTED' && <button className="btn small" onClick={() => setOffering(a.id)}>{a.offer_status ? 'Replace offer letter' : 'Upload offer letter'}</button>}
             {!['SELECTED', 'REJECTED'].includes(a.status) && <button className="btn small danger" onClick={() => move(a, 'REJECTED')}>Reject</button>}
           </div>
+          {offering === a.id && <OfferForm a={a} onCancel={() => setOffering(null)} onDone={() => { setOffering(null); setMsg({ ok: true, text: `Offer letter issued to ${a.student.full_name}` }); load(); onChange?.() }} />}
           {scheduling === a.id && <InterviewForm id={a.id} onCancel={() => setScheduling(null)} onDone={() => { setScheduling(null); setMsg({ ok: true, text: 'Interview scheduled' }); load(); onChange?.() }} />}
         </div>
       ))}

@@ -37,3 +37,9 @@ class OfferStatus(str, enum.Enum):
     ISSUED = "ISSUED"
     ACCEPTED = "ACCEPTED"
     DECLINED = "DECLINED"
+
+
+class RegistrationStatus(str, enum.Enum):
+    REGISTERED = "REGISTERED"
+    PRESENT = "PRESENT"
+    ABSENT = "ABSENT"

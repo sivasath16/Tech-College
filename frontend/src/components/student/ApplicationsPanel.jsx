@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import api, { errorMessage } from '../../api'
-import { fmtDate, fmtDateTime, StatusBadge, Tracker } from './format'
+import { fmtDate, fmtDateTime, openFile, StatusBadge, Timeline, Tracker } from './format'
 
 export default function ApplicationsPanel() {
   const [apps, setApps] = useState(null)
@@ -27,7 +27,12 @@ export default function ApplicationsPanel() {
           {a.interviews.map((i) => (
             <p key={i.id} className="note">Interview: {fmtDateTime(i.scheduled_at)} · {i.mode} · {i.location}{i.notes && ` — ${i.notes}`}</p>
           ))}
-          {a.offer && <p className="note">Offer letter: <StatusBadge status={a.offer.status} /> {a.offer.package && `· ${a.offer.package}`}</p>}
+          {a.offer && (
+            <p className="note">Offer letter: <StatusBadge status={a.offer.status} /> {a.offer.package && `· ${a.offer.package}`}
+              {a.offer.has_file && <> · <button className="link" onClick={() => openFile(`/student/offers/${a.id}/file`).catch((e) => setError(errorMessage(e)))}>View letter</button></>}
+            </p>
+          )}
+          <details className="history"><summary>Status history ({a.timeline.length})</summary><Timeline events={a.timeline} /></details>
         </div>
       ))}
     </div>

@@ -35,9 +35,58 @@ function DriveForm({ drive, onSaved, onCancel }) {
   )
 }
 
+function Attendance({ drive, onBack }) {
+  const [data, setData] = useState(null)
+  const [msg, setMsg] = useState(null)
+  const load = useCallback(async () => { try { setData((await api.get(`/admin/drives/${drive.id}/participation`)).data) } catch (e) { setMsg({ ok: false, text: errorMessage(e) }) } }, [drive.id])
+  useEffect(() => { load() }, [load])
+  const mark = async (r, status) => {
+    setMsg(null)
+    try { await api.patch(`/admin/drives/${drive.id}/registrations/${r.id}/attendance`, { status }); load() } catch (e) { setMsg({ ok: false, text: errorMessage(e) }) }
+  }
+  return (
+    <div className="stack">
+      <div className="row between"><h3>{drive.title}: attendance</h3><button className="btn ghost" onClick={onBack}>← Back to drives</button></div>
+      {msg && <div className={`alert ${msg.ok ? 'ok' : 'error'}`}>{msg.text}</div>}
+      {data && (
+        <>
+          <div className="grid3">
+            <div className="card stat"><span className="muted">Registered</span><b>{data.registered}</b></div>
+            <div className="card stat"><span className="muted">Present</span><b className="good">{data.present}</b></div>
+            <div className="card stat"><span className="muted">Absent</span><b>{data.absent}</b></div>
+            <div className="card stat"><span className="muted">Not yet marked</span><b>{data.pending}</b></div>
+            <div className="card stat"><span className="muted">Attendance rate</span><b>{data.attendance_percent}%</b></div>
+          </div>
+          {!data.started && <div className="alert">Attendance can be marked once the drive starts ({fmtDateTime(drive.drive_date)}).</div>}
+          <div className="card">
+            {data.registrations.length === 0 ? <p className="muted">No students have registered yet.</p> : (
+              <table>
+                <thead><tr><th>College ID</th><th>Student</th><th>Department</th><th>CGPA</th><th>Status</th><th /></tr></thead>
+                <tbody>
+                  {data.registrations.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.college_id}</td><td>{r.student_name}</td><td>{r.department}</td><td>{r.degree_cgpa}</td>
+                      <td><span className={`badge ${r.status === 'PRESENT' ? 'good' : r.status === 'ABSENT' ? 'bad' : 'info'}`}>{r.status === 'REGISTERED' ? 'Not marked' : r.status === 'PRESENT' ? 'Present' : 'Absent'}</span></td>
+                      <td className="row">
+                        <button className="btn small" disabled={!data.started || r.status === 'PRESENT'} onClick={() => mark(r, 'PRESENT')}>Present</button>
+                        <button className="btn small danger" disabled={!data.started || r.status === 'ABSENT'} onClick={() => mark(r, 'ABSENT')}>Absent</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function DrivesPanel({ onChange }) {
   const [rows, setRows] = useState(null)
   const [editing, setEditing] = useState(null)
+  const [attendance, setAttendance] = useState(null)
   const [msg, setMsg] = useState(null)
   const load = useCallback(async () => { try { setRows((await api.get('/admin/drives')).data) } catch (e) { setMsg({ ok: false, text: errorMessage(e) }) } }, [])
   useEffect(() => { load() }, [load])
@@ -46,6 +95,7 @@ export default function DrivesPanel({ onChange }) {
     if (!window.confirm(`Delete “${d.title}”?`)) return
     try { await api.delete(`/admin/drives/${d.id}`); setMsg({ ok: true, text: 'Drive deleted' }); load(); onChange() } catch (e) { setMsg({ ok: false, text: errorMessage(e) }) }
   }
+  if (attendance) return <Attendance drive={attendance} onBack={() => { setAttendance(null); load() }} />
   if (editing) return <DriveForm drive={editing === 'new' ? null : editing} onCancel={() => setEditing(null)} onSaved={(d, announced) => { setEditing(null); setMsg({ ok: true, text: `Saved “${d.title}”${announced ? ' and announced it on the landing page' : ''}` }); load(); onChange() }} />
   return (
     <div className="stack">
@@ -59,8 +109,10 @@ export default function DrivesPanel({ onChange }) {
             <p className="muted">{d.company_name} · {fmtDateTime(d.drive_date)} · {d.venue}</p>
             <p>{d.description}</p>
             <p className="muted">Min CGPA {d.min_cgpa} · Departments: {d.departments.join(', ') || 'All'}</p>
+            <p className="muted">Registered {d.registered} · Present {d.present} · Absent {d.absent}</p>
           </div>
           <div className="actions stack">
+            <button className="btn small" onClick={() => setAttendance(d)}>Attendance</button>
             <button className="btn small outline" onClick={() => setEditing(d)}>Edit</button>
             <button className="btn small danger" onClick={() => remove(d)}>Delete</button>
           </div>
